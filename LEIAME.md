@@ -1,0 +1,44 @@
+# Ferramentas de reconstrução de livros escaneados
+
+Transformam o PDF escaneado de um livro em duas versões limpas: `<título> - limpo.pdf` (texto preto em
+fundo branco) e `<título> - papel.pdf` (o mesmo, com textura de papel). Cada livro tem a sua pasta
+`<título> - limpo/` ao lado do PDF original, em `Downloads\Livr`.
+
+Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vida Nueva**.
+
+## Instalação
+
+Python 3 com `opencv-python numpy img2pdf pymupdf pyspellchecker` e o
+[Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) em `C:\Program Files\Tesseract-OCR`.
+Dois arquivos grandes não vão no repositório; baixe-os para dentro desta pasta:
+
+- `tessdata\spa.traineddata`: <https://github.com/tesseract-ocr/tessdata_best/raw/main/spa.traineddata>.
+  Copie também `osd.traineddata` e a pasta `configs` de `C:\Program Files\Tesseract-OCR\tessdata`.
+- `lexico\es_full.txt`: <https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/es/es_full.txt>.
+  Depois gere `lexico\es.json.gz` (palavras com frequência ≥ 3):
+  `py -c "import json,gzip; d={w:int(n) for w,n in (l.rsplit(' ',1) for l in open('lexico/es_full.txt',encoding='utf-8')) if int(n)>=3 and w.isalpha()}; json.dump(d,gzip.open('lexico/es.json.gz','wt',encoding='utf-8'),ensure_ascii=False)"`
+
+## As etapas
+
+Rode tudo de dentro desta pasta, com `py -I <script> ...` (e `$env:PYTHONIOENCODING='utf-8'` no PowerShell).
+
+| Etapa | Comando | O que faz |
+|---|---|---|
+| 1. Limpar páginas | `preparar.py "<livro.pdf>" "<pasta>"` | Separa as páginas duplas, endireita, tira bordas, sombra da lombada, riscos verticais do escaneamento, sujeira nas margens e entre linhas, e amplia 1,5×. Anotações à mão: `<pasta>\apagar.json`. |
+| 2. OCR | `ocr.py "<pasta>"` | Tesseract em espanhol (`tessdata\spa`, versão *best*) → `ocr.json`. |
+| 3. Manchas | `triagem.py "<pasta>" --limpar` e de novo `ocr.py` (duas vezes) | Apaga a sujeira grudada nas palavras quando é certo que é sujeira (marca sobre letra que não leva acento, traço sob a linha, marca solta no espaço entre duas palavras que o OCR juntou). Guarda as páginas anteriores em `paginas_antes_manchas\` e registra tudo em `reconstrucao\manchas_removidas.json`. |
+| 4. Limpeza julgada | `limpar_manual.py "<pasta>"` e `ocr.py` | Aplica `reconstrucao\limpeza_manual.json` (casos olhados um a um). |
+| 5. Triagem | `triagem.py "<pasta>"` | Lista as palavras a rever → `reconstrucao\triagem.json`. |
+| 6. Propostas | `propor.py "<pasta>"` | Gera `reconstrucao\propostas.json` (regras automáticas + `reconstrucao\julgamento.json`) e `pendentes.json` (o que ainda falta julgar). |
+| 7. Letras | `py -I -c "import sys; sys.path.insert(0,'.'); from glifos import construir; construir(r'<pasta>')"` | Biblioteca de letras recortadas do próprio livro (`glifos.pkl`). |
+| 8. Revisão | `.\revisar.ps1 serpiente\|tren\|vida` | Você decide caso a caso, vendo ANTES/DEPOIS. Enter aceita, `n` mantém, digitar corrige, `A` aceita de uma vez os de certeza alta, `q` sai (as decisões ficam salvas). |
+| 9. Aplicar | `.\aplicar.ps1 serpiente\|tren\|vida` | Redesenha as palavras aprovadas e refaz os dois PDFs. |
+
+## Arquivos de decisão (por livro, em `reconstrucao\`)
+
+- `julgamento.json` e `limpeza_manual.json` citam os ids de `triagem_julgada.json` (a triagem sobre a qual
+  se julgou). Os ids mudam a cada rodada; os scripts ligam as decisões aos casos atuais **pela posição na
+  página**, então dá para refazer OCR e triagem sem perder o julgamento.
+- `config.json` com `{"geometria": 2}` liga a geometria nova da reconstrução (reconhece pontuação pela forma,
+  não invade palavras vizinhas). Sem esse arquivo (La Serpiente, Tren), vale a geometria original.
+- `decisoes.json` é escrito pela revisão (etapa 8).

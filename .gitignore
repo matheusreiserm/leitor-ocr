@@ -1,0 +1,4 @@
+__pycache__/
+# arquivos grandes baixados (ver LEIAME.md, "Instalação")
+tessdata/
+lexico/
