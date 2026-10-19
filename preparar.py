@@ -18,7 +18,10 @@ import cv2, numpy as np, pymupdf
 
 
 def imagem(doc, i):
-    x = doc.extract_image(doc[i].get_images()[0][0])
+    # a imagem desenhada na página (alguns PDFs listam em todas as páginas recursos que não aparecem)
+    ims = doc[i].get_images(full=True)
+    vis = [im for im in ims if doc[i].get_image_rects(im[0])]
+    x = doc.extract_image((vis or ims)[0][0])
     return cv2.imdecode(np.frombuffer(x['image'], np.uint8), cv2.IMREAD_GRAYSCALE)
 
 
@@ -295,9 +298,172 @@ def suavizar(clean, esc):
     return np.clip((big - 35) * 255.0 / (220 - 35), 0, 255).astype(np.uint8)
 
 
+def fundo_branco(g):
+    """Foto em cinza: divide pelo fundo estimado (tira sombreado e iluminação desigual) e leva o papel a branco."""
+    k = max(31, (g.shape[1] // 40) | 1)
+    fundo = cv2.medianBlur(cv2.dilate(g, np.ones((7, 7), np.uint8)), k)
+    n = np.clip(g.astype(np.float32) / np.maximum(fundo.astype(np.float32), 1) * 255, 0, 255)
+    return np.clip((n - 30) * 255.0 / (225 - 30), 0, 255).astype(np.uint8)
+
+
+def desentortar(f, xh):
+    """Página fotografada (curvatura, perspectiva): cada linha de texto vira reta. Mede o pé das letras ao longo
+    de cada linha, ajusta uma parábola e desloca as colunas na vertical (interpolando entre as linhas)."""
+    b = (f < 128).astype(np.uint8)
+    k, lab, st, cen = cv2.connectedComponentsWithStats(b, 8)
+    x0, y0, w, h = st[:, 0], st[:, 1], st[:, 2], st[:, 3]
+    sel = np.where((h >= 0.7 * xh) & (h <= 1.3 * xh) & (w >= 0.3 * xh) & (w <= 1.6 * xh))[0]
+    sel = sel[sel > 0]
+    if len(sel) < 50: return f
+    pts = sorted(((x0[i] + w[i] / 2, y0[i] + h[i]) for i in sel), key=lambda p: p[1])
+    # agrupa em linhas seguindo da esquerda para a direita (tolera inclinação local)
+    def prever(L, x):
+        """y esperado da linha L na posição x, seguindo a inclinação dos últimos pontos."""
+        if len(L) < 4: return L[-1][1]
+        q = np.array(L[-10:]); s = np.polyfit(q[:, 0], q[:, 1], 1)[0] if np.ptp(q[:, 0]) > xh else 0.0
+        return L[-1][1] + float(np.clip(s, -0.15, 0.15)) * (x - L[-1][0])
+    linhas = []
+    for x, y in sorted(pts, key=lambda p: p[0]):
+        melhor, dm = None, None
+        for L in linhas:
+            if not (0 < x - L[-1][0] < 6 * xh): continue
+            dd = abs(y - prever(L, x))
+            if dd < 0.4 * xh and (dm is None or dd < dm): melhor, dm = L, dd
+        if melhor is not None: melhor.append((x, y))
+        else: linhas.append([(x, y)])
+    H, W = f.shape
+    fits = []
+    for L in linhas:
+        if len(L) < 12: continue
+        xs = np.array([p[0] for p in L]); ys = np.array([p[1] for p in L])
+        if np.ptp(xs) < 0.4 * W: continue
+        c = np.polyfit(xs, ys, 2); res = ys - np.polyval(c, xs)
+        ok = np.abs(res) < 0.3 * xh
+        if ok.sum() >= 10: c = np.polyfit(xs[ok], ys[ok], 2)
+        fits.append((float(np.polyval(c, W / 2)), c))
+    if len(fits) < 4: return f
+    fits.sort(key=lambda t: t[0])
+    alvo = np.array([t[0] for t in fits])
+    cols = np.arange(W, dtype=np.float32)
+    curvas = np.stack([np.polyval(c, cols) for _, c in fits])  # y real de cada linha em cada coluna
+    # para cada coluna: y destino (reto) -> y de origem, interpolando entre linhas e extrapolando nas pontas
+    ys_d = np.arange(H, dtype=np.float32)
+    mapy = np.empty((H, W), np.float32)
+    for x in range(W):
+        mapy[:, x] = np.interp(ys_d, alvo, curvas[:, x], left=np.nan, right=np.nan)
+    d0 = curvas[0] - alvo[0]; d1 = curvas[-1] - alvo[-1]
+    acima = ys_d[:, None] < alvo[0]; abaixo = ys_d[:, None] > alvo[-1]
+    mapy = np.where(acima, ys_d[:, None] + d0[None], mapy); mapy = np.where(abaixo, ys_d[:, None] + d1[None], mapy)
+    mapx = np.broadcast_to(cols[None], (H, W)).astype(np.float32)
+    return cv2.remap(f, mapx, mapy.astype(np.float32), cv2.INTER_LINEAR, borderValue=255)
+
+
+def perspectiva(f, xh):
+    """Foto tirada de lado: as margens das linhas convergem. Ajusta a margem esquerda (início das linhas, sem os
+    recuos de parágrafo) e a direita (fim das linhas cheias) e leva o quadrilátero a um retângulo."""
+    b = (f < 128).astype(np.uint8)
+    k, lab, st, cen = cv2.connectedComponentsWithStats(b, 8)
+    h, w = st[:, 3], st[:, 2]
+    letra = (h >= 0.6 * xh) & (h <= 2.6 * xh) & (w <= 8 * xh) & (w >= 0.15 * xh); letra[0] = False
+    bs = [x for x in _bandas(st, cen, letra, f.shape[0], xh) if x['n'] >= 8]
+    if len(bs) < 8: return f
+    ys = np.array([x['bl'] for x in bs]); l = np.array([x['x0'] for x in bs], float); r = np.array([x['x1'] for x in bs], float)
+    def ajusta(v, sinal):  # sinal +1: os desvios ruins são para dentro à direita (recuos); -1: à esquerda (linhas curtas)
+        ok = np.ones(len(v), bool)
+        for _ in range(4):
+            c = np.polyfit(ys[ok], v[ok], 1); res = (v - np.polyval(c, ys)) * sinal
+            ok = res < 0.6 * xh
+            if ok.sum() < 5: return None
+        return c
+    cl, cr = ajusta(l, 1), ajusta(r, -1)
+    if cl is None or cr is None: return f
+    yt, yb = float(ys.min()) - xh, float(ys.max()) + xh
+    Lt, Lb, Rt, Rb = np.polyval(cl, yt), np.polyval(cl, yb), np.polyval(cr, yt), np.polyval(cr, yb)
+    if max(abs(Lt - Lb), abs(Rt - Rb)) < 0.4 * xh: return f  # já está reto
+    x0 = (Lt + Lb) / 2; larg = ((Rt - Lt) + (Rb - Lb)) / 2
+    src = np.float32([[Lt, yt], [Rt, yt], [Rb, yb], [Lb, yb]])
+    dst = np.float32([[x0, yt], [x0 + larg, yt], [x0 + larg, yb], [x0, yb]])
+    M = cv2.getPerspectiveTransform(src, dst)
+    return cv2.warpPerspective(f, M, (f.shape[1], f.shape[0]), flags=cv2.INTER_LINEAR, borderValue=255)
+
+
+def mancha_foto(b, xh):
+    """Página fotografada e limpa: guarda toda a tinta dentro da área do texto (pontuação, pingos, acentos);
+    tira só o que está fora (borda da foto, dedo, sombra, outra página) ou encosta na borda da imagem."""
+    H, W = b.shape
+    k, lab, st, cen = cv2.connectedComponentsWithStats(b, 8)
+    x0, y0, w, h, a = st[:, 0], st[:, 1], st[:, 2], st[:, 3], st[:, 4]
+    # letras soltas ou grudadas ("cam" numa peça só): altura de letra, qualquer largura até uma palavra longa
+    letra = (h >= 0.6 * xh) & (h <= 2.6 * xh) & (w <= 8 * xh) & (w >= 0.15 * xh); letra[0] = False
+    borda = (x0 <= 2) | (y0 <= 2) | (x0 + w >= W - 2) | (y0 + h >= H - 2)
+    m = np.zeros((H, W), np.uint8)
+    for i in np.where(letra & ~borda)[0]: m[y0[i]:y0[i] + h[i], x0[i]:x0[i] + w[i]] = 1
+    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_RECT, (int(2.5 * xh) | 1, int(1.6 * xh) | 1)))
+    kk, ll, ss, _ = cv2.connectedComponentsWithStats(m, 8)
+    # blocos de texto de verdade: com muitas letras (o número da página, isolado, também conta)
+    conta = np.bincount(ll[(cen[letra & ~borda][:, 1]).astype(int), (cen[letra & ~borda][:, 0]).astype(int)], minlength=kk)
+    bons = [j for j in range(1, kk) if conta[j] >= 1 and (conta[j] >= 8 or ss[j][3] < 3 * xh)]
+    area = np.isin(ll, bons)
+    manter = [i for i in range(1, k) if not borda[i] and area[int(cen[i][1]), int(cen[i][0])] and h[i] < 4 * xh and w[i] < 8 * xh]
+    return lab, manter
+
+
+def main_simples(doc, pasta, xh_alvo=23.0):
+    """Páginas simples (uma por folha) fotografadas em cinza: limpa mantendo o cinza das letras."""
+    folhas = [fundo_branco(imagem(doc, i)) for i in range(len(doc))]
+    bins = [np.where(f < 128, 0, 255).astype(np.uint8) for f in folhas]
+    xh = xh_livro(bins[len(bins) // 3: len(bins) // 3 + 4]); esc = xh_alvo / xh
+    print(f'{len(folhas)} páginas simples · altura de x ≈ {xh:.0f} px · escala {esc:.2f}')
+    pags, angs = [], []
+    for f, b in zip(folhas, bins):
+        a = inclinacao(b, xh); a += inclinacao(endireitar(b, a), xh); angs.append(a)
+        H, W = f.shape; M = cv2.getRotationMatrix2D((W / 2, H / 2), a, 1.0)
+        f = cv2.warpAffine(f, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=255) if abs(a) >= 0.05 else f
+        f = desentortar(perspectiva(desentortar(f, xh), xh), xh)  # curvatura, perspectiva, e o resíduo
+        b = (f < 128).astype(np.uint8)
+        lab, manter = mancha_foto(b, xh)
+        keep = np.isin(lab, manter).astype(np.uint8)
+        keep = cv2.dilate(keep, np.ones((3, 3), np.uint8), iterations=2).astype(bool)  # leva junto a borda suave
+        img = np.where(keep, f, 255).astype(np.uint8)
+        # só para medir a mancha (margem pelo início das linhas, não por alguma marca solta) e o número da página
+        r = analisar(np.where(img < 128, 0, 255).astype(np.uint8), xh)
+        if not r['caixa'] and manter:
+            ys, xs = np.where(keep)
+            r['caixa'] = (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max()))
+        pags.append(dict(img=img, r=r))
+    print(f'inclinação corrigida: mediana {np.median(np.abs(angs)):.2f}°, máxima {np.max(np.abs(angs)):.2f}°')
+    # página uniforme: a mancha centrada pela margem esquerda e o número da página sempre na mesma altura
+    caixas = [p['r']['caixa'] for p in pags if p['r']['caixa']]
+    bw = float(np.median([c[2] - c[0] for c in caixas]))
+    Wc = int(bw / 0.70); Hc = int(Wc * 1.62)
+    for k, p in enumerate(pags, 1):
+        c = p['r']['caixa']
+        if c and c[2] - c[0] > 1.1 * bw: print(f'  atenção: página {k}: mancha {c[2] - c[0]:.0f} px, mais larga que o normal ({bw:.0f}) - conferir margens')
+    fols = [p['r']['folio'] - p['r']['caixa'][1] for p in pags if p['r']['folio'] is not None and p['r']['caixa']]
+    ytopo = int(Hc * 0.07)  # topo da mancha nas páginas cheias
+    yfol = ytopo + float(np.median(fols)) if fols else Hc * 0.93
+    for f in (pasta / 'paginas').glob('*.png'): f.unlink()
+    for k, p in enumerate(pags, 1):
+        canvas = np.full((Hc, Wc), 255, np.uint8); r = p['r']
+        if r['caixa']:
+            bx0, by0 = r['caixa'][0], r['caixa'][1]
+            dx = int(round((Wc - bw) / 2 - bx0))
+            dy = int(round(yfol - r['folio'])) if r['folio'] is not None else int(round(ytopo - by0))
+            h, w = p['img'].shape
+            xs0, ys0 = max(0, -dx), max(0, -dy); xd0, yd0 = max(0, dx), max(0, dy)
+            ww, hh = min(w - xs0, Wc - xd0), min(h - ys0, Hc - yd0)
+            if ww > 0 and hh > 0: canvas[yd0:yd0 + hh, xd0:xd0 + ww] = p['img'][ys0:ys0 + hh, xs0:xs0 + ww]
+        out = cv2.resize(canvas, None, fx=esc, fy=esc, interpolation=cv2.INTER_AREA)
+        cv2.imwrite(str(pasta / 'paginas' / f'{k:03d}_pagina.png'), out)
+    print(f'{len(pags)} páginas em {pasta / "paginas"} ({int(Wc * esc)} × {int(Hc * esc)} px)')
+
+
 def main(pdf, pasta, esc=1.5):
     pasta = Path(pasta); (pasta / 'paginas').mkdir(parents=True, exist_ok=True)
     doc = pymupdf.open(pdf)
+    g0 = imagem(doc, len(doc) // 2)
+    if g0.shape[0] > 1.2 * g0.shape[1] and len(np.unique(g0)) > 64:
+        return main_simples(doc, pasta)  # uma página por folha, foto em cinza
     folhas = [imagem(doc, i) for i in range(len(doc))]
     xh = xh_livro(folhas[len(folhas) // 3: len(folhas) // 3 + 4])
     print(f'{len(folhas)} folhas · altura de x ≈ {xh:.0f} px')

@@ -4,7 +4,13 @@ Transformam o PDF escaneado de um livro em duas versões limpas: `<título> - li
 fundo branco) e `<título> - papel.pdf` (o mesmo, com textura de papel). Cada livro tem a sua pasta
 `<título> - limpo/` ao lado do PDF original, em `Downloads\Livr`.
 
-Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vida Nueva**.
+Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vida Nueva**, **Biografía**.
+
+`preparar.py` reconhece dois tipos de PDF:
+- **escaneamento em páginas duplas, preto e branco** (La Vida Nueva): limpeza agressiva de sujeira, lascas e riscos;
+- **fotos de uma página por folha, em cinza** (Biografía): fundo branco por divisão do fundo estimado,
+  correção de curvatura e de perspectiva, e limpeza conservadora (fica toda a tinta dentro da mancha de texto).
+  Nesses livros, **não rode a etapa 3** (manchas): as fotos já são limpas e ela pode apagar pontuação.
 
 ## Instalação
 
