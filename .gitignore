@@ -1,0 +1,7 @@
+__pycache__/
+*.pkl
+*.png
+*.pdf
+_indra/
+gabarito_surya/
+mudou/
