@@ -128,6 +128,10 @@ def limpar(gray, pg, formas):
             fica.update(i for d, i in cand[:kk] if d <= 0.7 * xh)
         protegidas.update(fica)
         julgadas.append((v, cs, acima, abaixo, fica))
+    # Invariante: marca protegida nunca é apagada, nem se antes foi tomada por sujeira "entre linhas"
+    # (a faixa da linha começa a 2,1 alturas de x da base; a zona dos acentos vai até 2,3).
+    pendentes = apagar & protegidas
+    apagar -= pendentes; motivo['entre linhas'] -= len(pendentes)
     # 2ª passada: o que sobra é sujeira
     for v, cs, acima, abaixo, fica in julgadas:
         for i in acima:
@@ -139,6 +143,7 @@ def limpar(gray, pg, formas):
             if sob and not any(ch in COM_PERNA for ch in sob):
                 apagar.add(i); motivo['abaixo da letra'] += 1
 
+    apagar -= protegidas   # última salvaguarda antes de apagar pixels
     m = np.isin(lab, list(apagar)) if apagar else np.zeros_like(gray, bool)
     out = gray.copy(); out[m] = 255
     return out, m, motivo
