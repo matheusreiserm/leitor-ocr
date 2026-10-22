@@ -55,6 +55,41 @@ py -I -X utf8 <repo>\mudancas.py <variante_a> <variante_b>                      
 `limpar_por_moldes.py` grava, ao lado de cada página limpa, `apagado/<pagina>.png` com o que foi apagado em
 vermelho. `comparar.py` mede a parte das palavras fora do léxico em textos de OCR.
 
+## Versão final de um livro já revisado
+
+Quando a revisão das reconstruções (etapa 8 do reconstrucao-livros) já está feita, a limpeza nova entra sem
+refazer OCR, triagem nem revisão:
+
+```
+py -I -X utf8 <repo>\limpar_por_moldes.py "<livro>\paginas_sem_reconstrucao" base_nova     # na pasta de trabalho, com _moldes.pkl
+copie base_nova\*.png para "<livro>\paginas_sem_reconstrucao" (guarde antes a versão anterior)
+py -I -X utf8 <repo>\aplicar_sobre_limpa.py "<livro>" "<cópia da base anterior>" "<livro>\paginas_sem_reconstrucao"
+py -I <ferramentas>\pdfs_livro.py <ferramentas> "<livro>" "<título>"
+```
+
+`aplicar_sobre_limpa.py` mede a geometria de cada palavra aprovada na página-base **anterior**, a mesma da
+revisão, e desenha sobre a página limpa. Por isso as palavras redesenhadas saem idênticas às aprovadas. Medir na
+página limpa encolhia a área apagada em volta de algumas palavras e deixava restos ao lado ("era 'haber").
+O script também grava as páginas sem reconstrução, que o `aplicar.py` deixa como estavam. A conferência é feita
+por pixel: a versão nova só pode diferir da anterior onde a limpeza apagou tinta.
+
+## Avaliação
+
+```
+py -I -X utf8 <repo>\exportar_textos.py ocr <pasta_de_paginas> textos\<variante>        # tesseract\ e indra\, um .txt por página
+py -I -X utf8 <repo>\exportar_textos.py surya <results.json> [...] --saida referencia   # gabarito do Surya em .txt
+py -I -X utf8 <repo>\avaliar_gabarito.py --referencias referencia --hipoteses textos\<variante>\tesseract --saida aval\<nome>
+py -I -X utf8 <repo>\texto_consenso.py referencia textos\<v>\tesseract textos\<v>\indra "<título> - texto.md" "<título>"
+```
+
+`avaliar_gabarito.py` (da revisão técnica 01) dá WER, CER e as substituições que diferem só por acento, além de
+`divergencias.csv` palavra a palavra. Ele aceita qualquer referência em `.txt`. Com o Surya, mede concordância com
+outro OCR; com páginas transcritas à mão, mede fidelidade ao impresso. Os testes dele rodam sem `-I`
+(`py -E -s -X utf8 testes_avaliacao.py`), porque importam o módulo da mesma pasta.
+
+`texto_consenso.py` gera o texto do livro a partir da leitura do Surya. Uma palavra só é trocada quando ela não
+está no léxico e Tesseract e indra leram, no mesmo lugar, a mesma palavra do léxico. Cada troca vai para um `.csv`.
+
 ## Motores de OCR
 
 | Motor | Uso | Tempo por página (CPU) |
@@ -77,6 +112,9 @@ C:\Users\<você>\ocr_motores\easyocr   Python 3.14 + torch CPU + easyocr
 - **Surya 2** usa o `llama-server` do llama.cpp (`winget install ggml.llamacpp`). Antes de rodar, defina
   `LLAMA_CPP_BINARY` com o caminho dele. Em CPU, use `SURYA_INFERENCE_PARALLEL=2` e
   `SURYA_INFERENCE_TIMEOUT_SECONDS=3600`; com o padrão (8 em paralelo), as páginas estouram o tempo.
+  Em livros inteiros, rode em lotes de ~10 páginas: o Surya só grava o resultado no fim de cada execução, e se
+  o computador dormir no meio, a conexão com o servidor fica pendurada e tudo se perde. No Windows, impeça o
+  sono durante a execução (`SetThreadExecutionState`), sem mudar as opções de energia.
 - **PaddleOCR** no Windows precisa de `enable_mkldnn=False`, porque o paddlepaddle 3.4 falha no oneDNN.
 
 `aquecer/` tem um script por motor que baixa os modelos e lê uma página de teste.
