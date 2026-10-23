@@ -55,5 +55,18 @@ class Protecao(unittest.TestCase):
         self.assertEqual(motivo['entre linhas'], 1)
 
 
+class AcentoVerbal(unittest.TestCase):
+    def test_preterito_nao_vira_substantivo(self):
+        import limpar_por_moldes as L
+        self.assertTrue(L.acento_verbal_possivel('aleteó', 'aleteo'))     # o acento era real (página 25)
+        self.assertTrue(L.acento_verbal_possivel('negoció', 'negocio'))
+        self.assertTrue(L.acento_verbal_possivel('moduló', 'módulo'))      # -lo do radical, não pronome (página 23)
+        self.assertFalse(L.acento_verbal_possivel('parecidó', 'parecido'))  # particípio: sempre sujeira
+        self.assertFalse(L.acento_verbal_possivel('preguntandó', 'preguntando'))
+        self.assertFalse(L.acento_verbal_possivel('taparló', 'taparlo'))
+        self.assertFalse(L.acento_verbal_possivel('oyó', 'oyó'))
+        self.assertFalse(L.acento_verbal_possivel('estabá', 'estaba'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

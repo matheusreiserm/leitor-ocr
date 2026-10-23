@@ -2,8 +2,11 @@
 
 Uso: py -I -X utf8 texto_consenso.py <gabarito_surya_txt> <tesseract_txt> <indra_txt> <saida.md> [titulo]
 Uma palavra do Surya é trocada quando: (1) não está no léxico; (2) Tesseract e indra leram, no mesmo
-lugar (alinhamento por distância de edição), a mesma palavra; (3) essa palavra está no léxico. A pontuação
-do Surya é mantida. Cada troca vai para <saida>.trocas.csv, para conferência.
+lugar (alinhamento por distância de edição), a mesma palavra; (3) essa palavra está no léxico; (4) a troca é
+pequena (até 1/4 das letras; evita "paneomental" -> "mental"). Antes disso, palavra que o Surya juntou é
+separada quando os outros dois leram as duas partes em sequência ("encierto" -> "en cierto").
+Os leitores lidos devem ser os das páginas finais: a limpeza já guarda os acentos verdadeiros ("aleteó").
+A pontuação do Surya é mantida. Cada troca vai para <saida>.trocas.csv, para conferência.
 """
 import sys, csv, re
 from pathlib import Path
@@ -11,6 +14,15 @@ FER = Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'; sys.p
 import triagem as T
 
 PAL = re.compile(r'[^\W\d_]+')
+
+
+def distancia(a, b):
+    ant = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        at = [i]
+        for j, y in enumerate(b, 1): at.append(min(ant[j] + 1, at[j - 1] + 1, ant[j - 1] + (x != y)))
+        ant = at
+    return ant[-1]
 
 
 def alinhar(a, b):
@@ -40,11 +52,20 @@ def main(surya, tess, indra, saida, titulo='La Vida Nueva'):
         lt = [w.lower() for w in PAL.findall((tess / f.name).read_text(encoding='utf-8'))] if (tess / f.name).exists() else []
         li = [w.lower() for w in PAL.findall((indra / f.name).read_text(encoding='utf-8'))] if (indra / f.name).exists() else []
         pt, pi = alinhar(s, lt), alinhar(s, li)
+        big_t, big_i = set(zip(lt, lt[1:])), set(zip(li, li[1:]))
         novo, ult = [], 0
         for k, t in enumerate(toks):
-            w = t.group(); troca = None
-            if len(w) > 1 and not lex.ok(w) and pt[k] and pt[k] == pi[k] and pt[k] != w.lower() and lex.ok(pt[k]):
-                troca = pt[k].capitalize() if w[0].isupper() else pt[k]
+            w = t.group(); low = w.lower(); troca = None
+            if len(w) > 1 and not lex.ok(w):
+                # duas palavras que o Surya juntou ("paneomental", "encierto"): os outros dois leem as duas em sequência
+                for i in range(2, len(low) - 1):
+                    a, b = low[:i], low[i:]
+                    if (a, b) in big_t and (a, b) in big_i and lex.ok(a) and lex.ok(b): troca = f'{a} {b}'; break
+                c = pt[k]
+                if not troca and c and c == pi[k] and c != low and lex.ok(c) and distancia(low, c) <= max(2, len(low) // 4):
+                    troca = c
+            if troca:
+                troca = troca[0].upper() + troca[1:] if w[0].isupper() else troca
                 trocas.append(dict(pagina=f.stem, surya=w, consenso=troca, contexto=txt[max(0, t.start() - 40):t.end() + 40].replace('\n', ' ')))
             novo.append(txt[ult:t.start()] + (troca or w)); ult = t.end()
         novo.append(txt[ult:])

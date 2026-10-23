@@ -8,7 +8,7 @@ Para cada página: OCR (Tesseract, como ocr.py) -> linhas e palavras -> cada pe�
   - abaixo da linha de base, sob letra sem perna: sujeira.
 Nunca acrescenta tinta. Grava também <saida>/apagado/<pagina>.png (em vermelho o que saiu).
 """
-import sys, json, collections, unicodedata
+import sys, json, re, collections, unicodedata
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 FER = Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'; sys.path.insert(0, str(FER))  # repositório reconstrucao-livros, ao lado
@@ -17,7 +17,16 @@ import ocr as O, triagem as T
 
 MARCAS_ACIMA = {**{c: 1 for c in 'iíjáéóúñÁÉÍÓÚÑ'}, 'ü': 2, 'Ü': 2}
 COM_PERNA = set('gjpqyçÇQ')
-AMBIGUAS_RAZAO = 20
+AMBIGUAS_RAZAO = 20   # "esta/está", "el/él": se as duas formas são comuns, não se mexe nas marcas da palavra
+# Terminações que nunca levam acento no -o final: gerúndio, particípio ("preguntandó", "parecidó") e pronome
+# colado ao infinitivo ("taparló"); "modulo" termina em -lo sem ser pronome, por isso o -r antes.
+NUNCA_O_ACENTUADO = re.compile(r'(ndo|ido|ado|r(lo|la|le|los|las|les))$')
+
+
+def acento_verbal_possivel(lido, certo):
+    """O -ó final lido pode ser pretérito ("aleteó", "moduló") que o léxico, feito de legendas, não traz:
+    a forma sem acento ("aleteo", "módulo") é outra palavra, não a correção. Em dúvida, não se mexe nas marcas."""
+    return lido.endswith('ó') and not certo.endswith('ó') and not NUNCA_O_ACENTUADO.search(sem_acento_mantem_n(lido))
 ONDE_MARCA = {}       # letra -> (dx, dy) da marca em relação ao corpo da letra e à linha de base, tirado dos moldes
 
 
@@ -32,7 +41,7 @@ def carregar_moldes(f):
         marca, corpo = ys < A - 0.85 * xh, ys >= A - 1.0 * xh
         if P[marca].sum() == 0 or P[corpo].sum() == 0: continue
         cx = lambda z: (P[z] * xs[z]).sum() / P[z].sum()
-        ONDE_MARCA[ch] = (float(cx(marca) - cx(corpo)), float((P[marca] * ys[marca]).sum() / P[marca].sum() - A))   # "esta/está", "el/él": se as duas formas são comuns, não se mexe nas marcas da palavra
+        ONDE_MARCA[ch] = (float(cx(marca) - cx(corpo)), float((P[marca] * ys[marca]).sum() / P[marca].sum() - A))
 
 
 def sem_acento_mantem_n(s):
@@ -63,6 +72,7 @@ class Formas:
             return n if low in self.lex.livro else None
         if len(cands) > 1 and cands[1][0] * AMBIGUAS_RAZAO > cands[0][0]: return None   # ambígua
         best = cands[0][1]
+        if acento_verbal_possivel(low, best): return None
         return ''.join(b.upper() if a.isupper() else b for a, b in zip(n, best)) if len(best) == len(n) else None
 
 

@@ -13,7 +13,10 @@ Neste tipo de livro, a sujeira tem o tamanho de um acento ou de um ponto, então
 1. **Linhas, pelo OCR.** A linha de base e a altura de x de cada linha vêm das palavras do Tesseract, não da
    projeção da página.
 2. **Léxico.** Cada palavra é corrigida pelo léxico ("estabá" → "estaba", "eñañitos" → "enanitos"). Palavras
-   ambíguas ("esta/está", "el/él") não são tocadas.
+   ambíguas ("esta/está", "el/él") não são tocadas, e um -ó final também não ("aleteó", "moduló"). O léxico
+   vem de legendas e não traz pretéritos raros; sem essa regra, o acento verdadeiro era tratado como sujeira.
+   Ficam de fora dessa proteção gerúndio, particípio e pronome depois de infinitivo ("parecidó", "taparló"),
+   que nunca levam esse acento.
 3. **Moldes de letra** (agrupamento de símbolos). As letras de palavras confirmadas são alinhadas pela linha de
    base e somadas em um molde por caractere (39 no La Vida Nueva). O molde diz onde fica o acento de cada letra:
    o do "í", por exemplo, fica um pouco à direita da haste.
