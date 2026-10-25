@@ -550,10 +550,14 @@ def main(pdf, pasta, esc=None):
     paginas = []
     for k_, ((n, lado, g), r) in enumerate(zip(metades, an)):
         clean = np.full(g.shape, 255, np.uint8)
-        if r['manter'] and cinza:
-            # o cinza das peças que ficam, com a borda suave (2 px em volta)
-            fica = cv2.dilate(np.isin(r['lab'], r['manter']).astype(np.uint8), np.ones((3, 3), np.uint8), iterations=2).astype(bool)
-            clean[fica] = meios_tons[k_][fica]
+        if cinza and r['caixa']:
+            # em cinza nada é apagado peça a peça: perto da lombada a tinta fica clara e as letras se partem, e a
+            # escolha de peças apagava o começo das linhas ("ninho" -> "nho"). Fica toda a mancha de texto, com folga,
+            # como foi escaneada (só o papel a branco); fora dela saem sombra da lombada e bordas do escaneamento.
+            bx0, by0, bx1, by1 = r['caixa']; f_ = 2.0 * xh
+            ya, yb = max(0, int(by0 - f_)), min(g.shape[0], int(by1 + f_)); xa, xb = max(0, int(bx0 - f_)), min(g.shape[1], int(bx1 + f_))
+            t_ = meios_tons[k_][ya:yb, xa:xb]
+            clean[ya:yb, xa:xb] = np.where(t_ > 215, 255, t_)
         elif r['manter']: clean[np.isin(r['lab'], r['manter'])] = 0
         for i, ya, yb in r.get('aparar', []):  # letra atravessada pelo risco: tira só o que passa da altura de letra
             fora = r['lab'] == i

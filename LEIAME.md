@@ -12,10 +12,11 @@ Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vi
   correção de curvatura e de perspectiva, e limpeza conservadora (fica toda a tinta dentro da mancha de texto).
   Nesses livros, **não rode a etapa 3** (manchas): as fotos já são limpas e ela pode apagar pontuação.
 
-- **páginas duplas escaneadas em cor ou cinza** (Berkeley em Bellagio, em português): o papel é levado a branco,
-  a lombada é o vão entre as duas manchas e a página final guarda o cinza das letras (o limiar 128 quebrava os
-  traços finos). Nesses livros também **não rode a etapa 3**, e a triagem (etapas 5–9) dá falso alarme em quase
-  tudo (a perna da linha de cima conta como "marca a mais"): a saída do `preparar.py` já é a versão final.
+- **escaneamento já legível, em cor** (Berkeley em Bellagio, em português): **não limpe**. Use
+  `fatiar.py "<livro.pdf>" "<pasta>" "<título>"`, que só corta cada folha nas duas páginas, sem endireitar, clarear
+  nem realinhar, põe o texto do OCR invisível por baixo (busca e seleção) e as capas do `config.json` antes e
+  depois. A limpeza (`preparar.py` em modo cinza, etapa 3, triagem) apagou letras claras perto da lombada e só
+  piorou o livro. Reconstruir só onde a impressão está apagada e o OCR não alcança.
 
 ### Configuração por livro (`<pasta>/reconstrucao/config.json`)
 
