@@ -25,7 +25,8 @@ DPI = 300
 def texto_invisivel(img):
     """PDF de uma página só com o texto do Tesseract (sem imagem), no tamanho da imagem a 300 dpi."""
     with tempfile.TemporaryDirectory() as td:
-        src = Path(td) / 'p.png'; cv2.imwrite(str(src), cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+        # o OCR lê uma cópia com o papel a branco (a sombra da lombada atrapalha); a imagem do livro não muda
+        src = Path(td) / 'p.png'; cv2.imwrite(str(src), fundo_branco(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)))
         subprocess.run([TESS, str(src), str(Path(td) / 'p'), '--tessdata-dir', str(TESSDATA), '-l', idioma.tesseract(),
                         '--dpi', str(DPI), '-c', 'textonly_pdf=1', 'pdf'], check=True, capture_output=True,
                        env=dict(_o.environ, OMP_THREAD_LIMIT='1'))
@@ -105,6 +106,10 @@ def main(pdf, pasta, titulo):
             if (i + 1, lado) not in ignorar: paginas.append((f'{i + 1:02d}_{lado}', m))
     tam = None
     if cfg.get('endireitar', True): paginas, tam = endireitar_e_igualar(paginas, set(cfg.get('centralizar', [])))
+    # páginas reconstruídas à mão (ex.: fim de linha entortado na lombada): {"098_49_esq": "reconstrucao/x.jpg"}
+    # o nome é o da página recortada, sem o número de ordem; a imagem substitui o recorte, já no tamanho final
+    subst = cfg.get('substituir', {})
+    paginas = [(n, cv2.imdecode(np.fromfile(str(pasta / subst[n]), np.uint8), cv2.IMREAD_COLOR) if n in subst else im) for n, im in paginas]
     capas = cfg.get('capas', {})
     def recortes(lugar):
         from capas import no_tamanho
