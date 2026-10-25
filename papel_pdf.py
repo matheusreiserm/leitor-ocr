@@ -32,8 +32,10 @@ def main():
     xref = {}
     for i, pg in enumerate(doc):
         if capas.get(i):
-            r = pg.trimbox if pg.trimbox != pg.mediabox else pg.rect
-            pg.set_cropbox(r); pg.insert_image(r, filename=capas[i], keep_proportion=False, overlay=True)
+            # mesmo tamanho das páginas do miolo (a página da capa no arquivo da gráfica tem sangria e outro corte)
+            ref = doc[1].mediabox; m = pg.mediabox
+            r = pymupdf.Rect(m.x1 - ref.width, m.y0, m.x1, m.y0 + ref.height) if i == 0 else pymupdf.Rect(m.x0, m.y0, m.x0 + ref.width, m.y0 + ref.height)
+            pg.set_cropbox(r); pg.insert_image(pg.rect, filename=capas[i], keep_proportion=False, overlay=True)   # pg.rect: coordenadas da área visível
             continue
         if a.marcas:
             # marcas de corte da gráfica: traços vetoriais que encostam nas bordas; tira só o desenho que toca uma faixa
