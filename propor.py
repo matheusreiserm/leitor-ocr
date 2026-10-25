@@ -16,9 +16,11 @@ import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__
 _s.stdout.reconfigure(encoding='utf-8'); _s.stderr.reconfigure(encoding='utf-8')
 from pathlib import Path
 from triagem import Lexico, nucleo, PONT, casar
+import idioma
 import collections
 
-ACENTOS = {'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U'}
+ACENTOS = {'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
+           'â': 'a', 'ê': 'e', 'ô': 'o', 'à': 'a', 'Â': 'A', 'Ê': 'E', 'Ô': 'O', 'À': 'A'}   # til (ã, õ) não: muda a palavra
 
 
 def sem_acento_a_mais(n, lex):
@@ -66,7 +68,7 @@ def conferir_geometria(pasta, props, ocr, lex_f):
 
 
 def main(pasta):
-    pasta = Path(pasta); rd = pasta / 'reconstrucao'
+    pasta = Path(pasta); rd = pasta / 'reconstrucao'; idioma.definir(pasta)
     T = json.load(open(rd / 'triagem.json', encoding='utf-8'))
     fj = rd / 'julgamento.json'
     J0 = json.load(open(fj, encoding='utf-8-sig')) if fj.exists() else {}  # aceita arquivo salvo com BOM (Bloco de Notas)

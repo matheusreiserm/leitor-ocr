@@ -1,6 +1,8 @@
 """Separa as páginas duplas de um PDF escaneado em preto e branco, limpa a sujeira e amplia.
 
 Uso: py preparar.py "<livro.pdf>" "<pasta do livro limpo>" [escala]
+Em <pasta>/reconstrucao/config.json: "idioma" ("spa", "por") e "ignorar" (folhas ou meias-folhas fora do miolo).
+Escaneamento em cinza/cor de páginas duplas: o papel é levado a branco antes; a lombada é o vão entre as manchas.
 Grava <pasta>/paginas/NNN_pagina.png (texto preto em fundo branco, bordas suavizadas).
 
 Limpeza (feita na resolução do escaneamento, sobre as peças de tinta conectadas):
@@ -15,6 +17,7 @@ import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__
 _s.stdout.reconfigure(encoding='utf-8'); _s.stderr.reconfigure(encoding='utf-8')
 from pathlib import Path
 import cv2, numpy as np, pymupdf
+import idioma
 
 
 def imagem(doc, i):
@@ -22,13 +25,31 @@ def imagem(doc, i):
     ims = doc[i].get_images(full=True)
     vis = [im for im in ims if doc[i].get_image_rects(im[0])]
     x = doc.extract_image((vis or ims)[0][0])
-    return cv2.imdecode(np.frombuffer(x['image'], np.uint8), cv2.IMREAD_GRAYSCALE)
+    g = cv2.imdecode(np.frombuffer(x['image'], np.uint8), cv2.IMREAD_GRAYSCALE)
+    # o PDF pode mostrar a imagem girada (/Rotate): a imagem guardada fica deitada
+    gira = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}.get(doc[i].rotation % 360)
+    return cv2.rotate(g, gira) if gira is not None else g
 
 
 def lombada(g):
     W = g.shape[1]; a, b = int(W * 0.35), int(W * 0.65)
     col = cv2.blur((g < 100).astype(np.float32).mean(0)[None], (9, 1))[0]
     return a + int(np.argmax(col[a:b]))
+
+
+def lombada_vao(b):
+    """Escaneamento em cinza (papel normalizado a branco): a lombada não é um risco preto, mas o vão entre as
+    duas manchas de texto. Sombras e vincos verticais (peças muito altas) não contam como texto."""
+    H, W = b.shape; a, z = int(W * 0.3), int(W * 0.7)
+    k, lab, st, _ = cv2.connectedComponentsWithStats((b < 128).astype(np.uint8), 8)
+    altas = np.where(st[:, 3] > 0.3 * H)[0]; altas = altas[altas > 0]
+    tinta = (b < 128) & ~np.isin(lab, altas)
+    col = cv2.blur(tinta.astype(np.float32).mean(0)[None], ((W // 100) | 1, 1))[0]
+    vazias = np.where(col[a:z] < 0.004)[0] + a
+    if not len(vazias): return a + int(np.argmin(col[a:z]))
+    trechos = np.split(vazias, np.where(np.diff(vazias) > 1)[0] + 1)
+    t = max(trechos, key=len)
+    return int((t[0] + t[-1]) // 2)
 
 
 def xh_livro(gs):
@@ -120,6 +141,22 @@ def inclinacao(g, xh):
     a = grade[int(np.argmax([nitidez(v) for v in grade]))]
     fina = np.arange(a - 0.2, a + 0.2001, 0.02)
     return float(fina[int(np.argmax([nitidez(v) for v in fina]))])
+
+
+LIMIAR_CINZA = 180   # papel normalizado a 255; a tinta deste tipo de escaneamento vai de ~40 a ~200
+
+
+def girar_tons(t, ang):
+    """Como endireitar(), mas sem passar a preto e branco."""
+    if abs(ang) < 0.05: return t
+    H, W = t.shape
+    return cv2.warpAffine(t, cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0), (W, H), flags=cv2.INTER_LINEAR, borderValue=255)
+
+
+def ampliar_tons(t, esc):
+    """Amplia a página em cinza e escurece um pouco a tinta (o escaneamento a deixa cinza médio)."""
+    big = cv2.resize(t, None, fx=esc, fy=esc, interpolation=cv2.INTER_CUBIC if esc > 1 else cv2.INTER_AREA).astype(np.float32)
+    return np.clip((big - 20) * 255.0 / (230 - 20), 0, 255).astype(np.uint8)
 
 
 def endireitar(g, ang):
@@ -251,7 +288,8 @@ def analisar(g, xh):
                 baixo = [j for j in b['ids'] if x0[j] - 1 <= cx <= x0[j] + w[j] + 1 and y0[j] > y0[i]]
                 if h[i] <= 0.3 * xh and w[i] >= 1.6 * h[i] and w[i] <= 1.2 * xh:
                     # traço horizontal: o espanhol não tem mácron; só o til do ñ, sobre uma letra em forma de n
-                    if not any(0.8 * xh <= h[j] <= 1.25 * xh and _forma_n(lab, st, j) for j in baixo): continue
+                    # (em português o til fica sobre a e o: ã, õ)
+                    if idioma.ATUAL != 'por' and not any(0.8 * xh <= h[j] <= 1.25 * xh and _forma_n(lab, st, j) for j in baixo): continue
                 if pequeno and not baixo:
                     # sem letra embaixo: aspas ficam coladas à palavra; marca solta no espaço é sujeira
                     viz = [j for j in b['ids'] if j != i]
@@ -458,24 +496,42 @@ def main_simples(doc, pasta, xh_alvo=23.0):
     print(f'{len(pags)} páginas em {pasta / "paginas"} ({int(Wc * esc)} × {int(Hc * esc)} px)')
 
 
-def main(pdf, pasta, esc=1.5):
+def main(pdf, pasta, esc=None):
     pasta = Path(pasta); (pasta / 'paginas').mkdir(parents=True, exist_ok=True)
+    idioma.definir(pasta)
+    fc = pasta / 'reconstrucao' / 'config.json'
+    cfg = json.load(open(fc, encoding='utf-8-sig')) if fc.exists() else {}
+    # folhas e meias-folhas fora do miolo (capas, orelhas), numeradas como no PDF: {"ignorar": [[1, "esq"], [54, "*"]]}
+    ignorar = {(int(f), l) for f, l in cfg.get('ignorar', [])}
     doc = pymupdf.open(pdf)
     g0 = imagem(doc, len(doc) // 2)
-    if g0.shape[0] > 1.2 * g0.shape[1] and len(np.unique(g0)) > 64:
+    cinza = len(np.unique(g0)) > 64
+    if g0.shape[0] > 1.2 * g0.shape[1] and cinza:
         return main_simples(doc, pasta)  # uma página por folha, foto em cinza
     folhas = [imagem(doc, i) for i in range(len(doc))]
+    tons = None
+    if cinza:
+        # páginas duplas escaneadas em cor/cinza (papel amarelado, sombra da lombada): papel a branco; a decisão
+        # do que é letra é tomada em preto e branco com limiar folgado (a tinta deste tipo de escaneamento é cinza
+        # médio: em 128 os traços finos quebram), e a página final guarda o cinza original das letras que ficam
+        tons = [fundo_branco(g) for g in folhas]
+        folhas = [np.where(t < LIMIAR_CINZA, 0, 255).astype(np.uint8) for t in tons]
     xh = xh_livro(folhas[len(folhas) // 3: len(folhas) // 3 + 4])
-    print(f'{len(folhas)} folhas · altura de x ≈ {xh:.0f} px')
+    if esc is None: esc = 23.0 / xh if cinza else 1.5   # altura de x final ≈ 23 px, como nos outros livros
+    print(f'{len(folhas)} folhas{" em cinza" if cinza else ""} · altura de x ≈ {xh:.0f} px · escala {esc:.2f} · idioma {idioma.ATUAL}')
     metades = []  # (folha, lado, imagem com a lombada na borda interna)
+    meios_tons = []  # em cinza: a mesma metade, girada igual, com os tons do escaneamento
     angs = []
     for n, g in enumerate(folhas):
-        L = lombada(g)
+        if (n + 1, '*') in ignorar: continue
+        L = lombada_vao(g) if cinza else lombada(g)
         for lado, m in (('esq', g[:, :L]), ('dir', g[:, L:])):
+            if (n + 1, lado) in ignorar: continue
             ang = inclinacao(m, xh)
             ang += inclinacao(endireitar(m, ang), xh)  # resíduo: gira o original uma vez só, pelo ângulo somado
             angs.append(ang)
             metades.append((n, lado, endireitar(m, ang)))
+            if cinza: meios_tons.append(girar_tons(tons[n][:, :L] if lado == 'esq' else tons[n][:, L:], ang))
     print(f'inclinação corrigida: mediana {np.median(np.abs(angs)):.2f}°, máxima {np.max(np.abs(angs)):.2f}°')
     Wc = int(np.median([m[2].shape[1] for m in metades])); Hc = int(np.median([g.shape[0] for g in folhas]))
     an = [analisar(m[2], xh) for m in metades]
@@ -492,9 +548,13 @@ def main(pdf, pasta, esc=1.5):
     dys = {n: alvo - float(np.mean(v)) for n, v in fol.items()} if fol else {}
     dy_padrao = float(np.median(list(dys.values()))) if dys else 0.0
     paginas = []
-    for (n, lado, g), r in zip(metades, an):
+    for k_, ((n, lado, g), r) in enumerate(zip(metades, an)):
         clean = np.full(g.shape, 255, np.uint8)
-        if r['manter']: clean[np.isin(r['lab'], r['manter'])] = 0
+        if r['manter'] and cinza:
+            # o cinza das peças que ficam, com a borda suave (2 px em volta)
+            fica = cv2.dilate(np.isin(r['lab'], r['manter']).astype(np.uint8), np.ones((3, 3), np.uint8), iterations=2).astype(bool)
+            clean[fica] = meios_tons[k_][fica]
+        elif r['manter']: clean[np.isin(r['lab'], r['manter'])] = 0
         for i, ya, yb in r.get('aparar', []):  # letra atravessada pelo risco: tira só o que passa da altura de letra
             fora = r['lab'] == i
             fora[max(0, int(ya)):max(0, int(yb)) + 1] = False
@@ -517,7 +577,7 @@ def main(pdf, pasta, esc=1.5):
     apagar = json.load(open(fa, encoding='utf-8')) if fa.exists() else {}
     for f in (pasta / 'paginas').glob('*.png'): f.unlink()
     for k, p in enumerate(paginas, 1):
-        img = suavizar(p['img'], esc)
+        img = ampliar_tons(p['img'], esc) if cinza else suavizar(p['img'], esc)
         for r in ([[0, 0, img.shape[1], img.shape[0]]] if apagar.get(f'{k:03d}') == 'tudo' else apagar.get(f'{k:03d}', [])):
             img[int(r[1]):int(r[3]), int(r[0]):int(r[2])] = 255
         cv2.imwrite(str(pasta / 'paginas' / f'{k:03d}_pagina.png'), img)
@@ -525,4 +585,4 @@ def main(pdf, pasta, esc=1.5):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else 1.5)
+    main(sys.argv[1], sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else None)

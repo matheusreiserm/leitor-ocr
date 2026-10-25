@@ -4,7 +4,7 @@ import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__
 from pathlib import Path
 import cv2, numpy as np
 
-BASE = set('acemnorsuvwxzáéíóúñ')       # letras apoiadas na linha de base, sem descendente
+BASE = set('acemnorsuvwxzáéíóúñâêôãõà')       # letras apoiadas na linha de base, sem descendente
 INK = 140
 
 

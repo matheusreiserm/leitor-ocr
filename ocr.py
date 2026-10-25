@@ -1,8 +1,9 @@
-"""OCR das páginas limpas (Tesseract, espanhol) no formato que o resto das ferramentas lê.
+"""OCR das páginas limpas (Tesseract, no idioma do livro) no formato que o resto das ferramentas lê.
 
 Uso: py ocr.py "<pasta do livro limpo>"
 Grava <pasta>/ocr.json: {pagina: {words: [{t, conf, x, y, w, h, line, wn}], chars: [[c, x0, y0, x1, y1]], shape}}
-O modelo de espanhol fica em ferramentas_reconstrucao/tessdata (tessdata_best).
+Os modelos (spa, por) ficam em ferramentas_reconstrucao/tessdata (tessdata_best); o idioma vem de
+<pasta>/reconstrucao/config.json ("idioma"; sem ele, espanhol).
 """
 import sys, json, os, subprocess, tempfile, csv
 import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); import uniio  # noqa: caminhos com acento
@@ -10,6 +11,7 @@ _s.stdout.reconfigure(encoding='utf-8'); _s.stderr.reconfigure(encoding='utf-8')
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import cv2
+import idioma
 
 TESS = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 TESSDATA = Path(__file__).parent / 'tessdata'
@@ -20,7 +22,7 @@ def pagina(f):
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / 'p.png'; cv2.imwrite(str(src), img)  # caminho sem acento para o Tesseract
         env = dict(os.environ, OMP_THREAD_LIMIT='1')
-        subprocess.run([TESS, str(src), str(Path(td) / 'p'), '--tessdata-dir', str(TESSDATA), '-l', 'spa',
+        subprocess.run([TESS, str(src), str(Path(td) / 'p'), '--tessdata-dir', str(TESSDATA), '-l', idioma.tesseract(),
                         '--psm', '3', 'tsv', 'makebox'], check=True, capture_output=True, env=env)
         words = []
         with open(Path(td) / 'p.tsv', encoding='utf-8', newline='') as fh:
@@ -39,7 +41,7 @@ def pagina(f):
 
 
 def main(pasta):
-    pasta = Path(pasta)
+    pasta = Path(pasta); idioma.definir(pasta)
     fs = sorted((pasta / 'paginas').glob('*.png'))
     out = {}
     with ThreadPoolExecutor(max(1, (os.cpu_count() or 2) - 1)) as ex:

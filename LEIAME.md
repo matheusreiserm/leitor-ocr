@@ -4,13 +4,33 @@ Transformam o PDF escaneado de um livro em duas versões limpas: `<título> - li
 fundo branco) e `<título> - papel.pdf` (o mesmo, com textura de papel). Cada livro tem a sua pasta
 `<título> - limpo/` ao lado do PDF original, em `Downloads\Livr`.
 
-Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vida Nueva**, **Biografía**.
+Livros já tratados: **La Serpiente**, **Invención del Tren Fantasma**, **La Vida Nueva**, **Biografía**, **Berkeley em Bellagio**.
 
 `preparar.py` reconhece dois tipos de PDF:
 - **escaneamento em páginas duplas, preto e branco** (La Vida Nueva): limpeza agressiva de sujeira, lascas e riscos;
 - **fotos de uma página por folha, em cinza** (Biografía): fundo branco por divisão do fundo estimado,
   correção de curvatura e de perspectiva, e limpeza conservadora (fica toda a tinta dentro da mancha de texto).
   Nesses livros, **não rode a etapa 3** (manchas): as fotos já são limpas e ela pode apagar pontuação.
+
+- **páginas duplas escaneadas em cor ou cinza** (Berkeley em Bellagio, em português): o papel é levado a branco,
+  a lombada é o vão entre as duas manchas e a página final guarda o cinza das letras (o limiar 128 quebrava os
+  traços finos). Nesses livros também **não rode a etapa 3**, e a triagem (etapas 5–9) dá falso alarme em quase
+  tudo (a perna da linha de cima conta como "marca a mais"): a saída do `preparar.py` já é a versão final.
+
+### Configuração por livro (`<pasta>/reconstrucao/config.json`)
+
+```json
+{"geometria": 2, "idioma": "por", "ignorar": [[1, "esq"], [54, "*"]], "papel": false,
+ "capas": {"antes": [{"folha": 54, "caixa": [1730, 0, 3316, 2460], "nome": "capa"}],
+           "depois": [{"folha": 54, "caixa": [0, 0, 1600, 2460], "nome": "contracapa"}]}}
+```
+
+- `idioma`: `spa` (padrão) ou `por`. Em português, valem o léxico `pt.json.gz`, o Tesseract `por`, os tis em
+  ã/õ e a grafia anterior a 2009 ("idéia", "vôo", "freqüente", "pára"), que o léxico atual não traz (`idioma.py`).
+- `ignorar`: folhas do PDF (ou só uma metade, `esq`/`dir`) fora do miolo, como capas e orelhas.
+- `capas`: recortes do próprio escaneamento (`capas.py`), postos antes e depois do miolo no PDF, em cor e sem
+  textura. Os nomes com "capa" ou "orelha" ficam sem textura; os outros ("rosto") a recebem.
+- `papel`: `false` gera só o PDF limpo (para livro cujo papel tem cor própria, a textura não acrescenta nada).
 
 ## Instalação
 

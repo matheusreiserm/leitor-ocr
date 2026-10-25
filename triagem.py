@@ -13,12 +13,13 @@ _s.stdout.reconfigure(encoding='utf-8'); _s.stderr.reconfigure(encoding='utf-8')
 from pathlib import Path
 import cv2, numpy as np
 from spellchecker import SpellChecker
+import idioma
 
 AQUI = Path(__file__).parent
 PONT = '¿?¡!.,;:…"“”«»()[]—–-\'’‘*'
 INK = 140
 BAIXA = set('acemnorsuvwxz')          # sem haste, sem acento, sem perna
-SEM_PERNA = set('abcdefhiklmnorstuvwxzáéíóúñABCDEFGHIJKLMNOPRSTUVWXZÁÉÍÓÚÑ')
+SEM_PERNA = set('abcdefhiklmnorstuvwxzáéíóúñâêôãõàABCDEFGHIJKLMNOPRSTUVWXZÁÉÍÓÚÑÂÊÔÃÕÀ')
 
 
 def tira_acento(s):
@@ -27,15 +28,16 @@ def tira_acento(s):
 
 class Lexico:
     def __init__(self, livro):
-        self.f = json.load(gzip.open(AQUI / 'lexico' / 'es.json.gz', 'rt', encoding='utf-8'))
+        self.f = json.load(gzip.open(AQUI / 'lexico' / idioma.lexico(), 'rt', encoding='utf-8'))
         self.semac = collections.defaultdict(int)
         for w, n in self.f.items(): self.semac[tira_acento(w)] = max(self.semac[tira_acento(w)], n)
         self.livro = livro  # palavras que o próprio livro confirma (nomes, termos raros)
-        self.sp = SpellChecker(language=None, distance=1); self.sp.word_frequency.load_dictionary(str(AQUI / 'lexico' / 'es.json.gz'))
+        self.sp = SpellChecker(language=None, distance=1); self.sp.word_frequency.load_dictionary(str(AQUI / 'lexico' / idioma.lexico()))
 
     def ok(self, w):
         lw = w.lower()
         if lw in self.livro: return True
+        if idioma.grafia_antiga(lw): lw = idioma.moderna(lw)   # "idéia", "vôo": grafia anterior a 2009
         n = self.f.get(lw, 0)
         if n < 3: return False
         if lw != tira_acento(lw) and n < 300 and self.f.get(tira_acento(lw), 0) > 100 * n:
@@ -63,10 +65,10 @@ def linhas_da_pagina(pg):
     return list(L.values())
 
 
-MARCAS = {**{c: 1 for c in 'iíjáéóúñüÁÉÍÓÚÑÜ¡¿’‘\''}, **{c: 2 for c in '“”"'}}  # peças soltas acima da altura de x
+MARCAS = {**{c: 1 for c in 'iíjáéóúñüâêôãõàÁÉÍÓÚÑÜÂÊÔÃÕÀ¡¿’‘\''}, **{c: 2 for c in '“”"'}}  # peças soltas acima da altura de x
 
 
-COM_MARCA = {**{c: 1 for c in 'iíjáéóúñÁÉÍÓÚÑ'}, 'ü': 2, 'Ü': 2}  # marcas que cada letra leva
+COM_MARCA = {**{c: 1 for c in 'iíjáéóúñâêôãõàÁÉÍÓÚÑÂÊÔÃÕÀ'}, 'ü': 2, 'Ü': 2}  # marcas que cada letra leva
 
 
 def manchas(gray, pg, idxs, xh, linhas_bl):
@@ -268,7 +270,7 @@ def casar(ref, atual, tol=18):
 
 
 def main(pasta, limpar=False):
-    pasta = Path(pasta); rd = pasta / 'reconstrucao'; rd.mkdir(exist_ok=True)
+    pasta = Path(pasta); rd = pasta / 'reconstrucao'; rd.mkdir(exist_ok=True); idioma.definir(pasta)
     ocr = json.load(open(pasta / 'ocr.json', encoding='utf-8'))
     removidas = []
     if limpar:
