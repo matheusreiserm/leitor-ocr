@@ -1,9 +1,17 @@
 # leitor-ocr
 
 Limpeza de páginas escaneadas guiada pelo próprio livro, antes do OCR, e comparação de motores de OCR.
-Complementa [reconstrucao-livros](https://github.com/matheusreiserm/reconstrucao-livros), que precisa estar
-clonado **ao lado** desta pasta, com o nome `ferramentas_reconstrucao` (os scripts usam o `ocr.py`, a `triagem.py`
-e o léxico de lá).
+Complementa as ferramentas de reconstrução, que estão no ramo
+[`ferramentas-reconstrucao`](https://github.com/matheusreiserm/leitor-ocr/tree/ferramentas-reconstrucao) deste
+repositório e precisam estar clonadas **ao lado** desta pasta, com o nome `ferramentas_reconstrucao` (os scripts
+usam o `ocr.py`, a `triagem.py` e o léxico de lá):
+
+```
+git clone -b ferramentas-reconstrucao https://github.com/matheusreiserm/leitor-ocr.git ferramentas_reconstrucao
+```
+
+Para livro escaneado que já se lê bem (o caso mais comum), o caminho é o `fatiar.py` das ferramentas: só corta as
+folhas, endireita, iguala o tamanho e põe o OCR invisível por baixo; reconstrução só onde a impressão está apagada.
 
 ## A ideia
 
