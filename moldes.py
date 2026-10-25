@@ -17,7 +17,7 @@ from limpar_por_moldes import O, T
 import cv2, numpy as np
 
 PAD = 4; MIN_AMOSTRAS = 15
-BASE = set('acemnorsuvwxzáéíóúñ')   # letras apoiadas na linha de base, sem perna
+BASE = set('acemnorsuvwxzáéíóúñâêôãõà')   # letras apoiadas na linha de base, sem perna
 
 
 def pecas(gray, w, t):

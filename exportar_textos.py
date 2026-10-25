@@ -6,7 +6,7 @@ Uso:
 Em todos, a hifenização de fim de linha é desfeita ("aprove-\\nchaba" -> "aprovechaba") e as marcas HTML do
 Surya saem, para que referência e leitura sejam comparadas da mesma forma.
 """
-import sys, json, re, html, shutil, subprocess
+import sys, os, json, re, html, shutil, subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'))  # repositório reconstrucao-livros, ao lado
@@ -23,7 +23,7 @@ def normalizar(s):
 
 
 def tesseract(paginas, saida):
-    import ocr as O
+    import ocr as O, idioma; idioma.definir(codigo=os.environ.get('LEITOR_IDIOMA', 'spa'))
     fs = sorted(Path(paginas).glob('*.png')); saida.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(11) as ex:
         for nome, pg in ex.map(O.pagina, fs):

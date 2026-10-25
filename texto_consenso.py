@@ -8,10 +8,11 @@ separada quando os outros dois leram as duas partes em sequência ("encierto" ->
 Os leitores lidos devem ser os das páginas finais: a limpeza já guarda os acentos verdadeiros ("aleteó").
 A pontuação do Surya é mantida. Cada troca vai para <saida>.trocas.csv, para conferência.
 """
-import sys, csv, re
+import sys, os, csv, re
 from pathlib import Path
 FER = Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'; sys.path.insert(0, str(FER))  # repositório reconstrucao-livros, ao lado
 import triagem as T
+import idioma; idioma.definir(codigo=os.environ.get('LEITOR_IDIOMA', 'spa'))   # 'por' para livros em português
 
 PAL = re.compile(r'[^\W\d_]+')
 

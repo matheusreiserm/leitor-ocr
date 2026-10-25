@@ -68,5 +68,18 @@ class AcentoVerbal(unittest.TestCase):
         self.assertFalse(L.acento_verbal_possivel('estabá', 'estaba'))
 
 
+class Portugues(unittest.TestCase):
+    def test_marcas_que_mudam_a_palavra_ficam(self):
+        import limpar_por_moldes as L
+        ant = L.idioma.ATUAL; L.idioma.definir(codigo='por')
+        try:
+            f = L.Formas(L.T.Lexico(set()))
+            for w in ('pôde', 'nós', 'às', 'não', 'você', 'coração'): self.assertEqual(f.validar(w), w)
+            for w in ('idéia', 'vôo', 'freqüente', 'pára'): self.assertIsNone(f.validar(w))   # grafia antiga: não mexe
+            self.assertEqual(f.validar('câsa'), 'casa')            # marca que não existe na palavra: sujeira
+        finally:
+            L.idioma.definir(codigo=ant)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

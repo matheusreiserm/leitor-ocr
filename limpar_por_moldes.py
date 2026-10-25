@@ -8,14 +8,15 @@ Para cada página: OCR (Tesseract, como ocr.py) -> linhas e palavras -> cada pe�
   - abaixo da linha de base, sob letra sem perna: sujeira.
 Nunca acrescenta tinta. Grava também <saida>/apagado/<pagina>.png (em vermelho o que saiu).
 """
-import sys, json, re, collections, unicodedata
+import sys, os, json, re, collections, unicodedata
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 FER = Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'; sys.path.insert(0, str(FER))  # repositório reconstrucao-livros, ao lado
 import cv2, numpy as np
 import ocr as O, triagem as T
+import idioma; idioma.definir(codigo=os.environ.get('LEITOR_IDIOMA', 'spa'))   # 'por' para livros em português
 
-MARCAS_ACIMA = {**{c: 1 for c in 'iíjáéóúñÁÉÍÓÚÑ'}, 'ü': 2, 'Ü': 2}
+MARCAS_ACIMA = {**{c: 1 for c in 'iíjáéóúñâêôãõàÁÉÍÓÚÑÂÊÔÃÕÀ'}, 'ü': 2, 'Ü': 2}
 COM_PERNA = set('gjpqyçÇQ')
 AMBIGUAS_RAZAO = 20   # "esta/está", "el/él": se as duas formas são comuns, não se mexe nas marcas da palavra
 # Terminações que nunca levam acento no -o final: gerúndio, particípio ("preguntandó", "parecidó") e pronome
@@ -65,6 +66,10 @@ class Formas:
         n = T.nucleo(t)
         if len(n) < 2 or not n.isalpha(): return None
         low = n.lower(); chave = sem_acento_mantem_n(low)
+        if idioma.grafia_antiga(low): return None   # "idéia", "vôo": grafia anterior a 2009, que o léxico não traz
+        # português: pares que só o acento separa ("pôde/pode", "nós/nos", "camelôs/camelos"); se a palavra lida
+        # existe no léxico, a marca dela não é tocada, por mais frequente que seja a outra forma
+        if idioma.ATUAL == 'por' and low in self.lex.f: return n
         cands = self.por.get(chave, [])
         if not cands and 'ñ' in chave:   # til que o léxico não aceita ("eñañitos"): sujeira lida como til
             cands = self.por.get(chave.replace('ñ', 'n'), [])
@@ -72,7 +77,7 @@ class Formas:
             return n if low in self.lex.livro else None
         if len(cands) > 1 and cands[1][0] * AMBIGUAS_RAZAO > cands[0][0]: return None   # ambígua
         best = cands[0][1]
-        if acento_verbal_possivel(low, best): return None
+        if idioma.ATUAL == 'spa' and acento_verbal_possivel(low, best): return None
         return ''.join(b.upper() if a.isupper() else b for a, b in zip(n, best)) if len(best) == len(n) else None
 
 
@@ -94,7 +99,9 @@ def limpar(gray, pg, formas):
     faixas = []
     for L in linhas:
         bs = [bl[i] for i in L if i in bl]
-        if not bs: continue
+        # linha em letra menor (cabeçalho, versalete, colofão) fica sem base medida: vale o pé das palavras,
+        # senão o til e os acentos dela caem como "entre linhas" ("João" do cabeçalho virava "Joao")
+        if not bs: bs = [words[i]['y'] + words[i]['h'] for i in L]
         b = float(np.median(bs)); x0 = min(words[i]['x'] for i in L); x1 = max(words[i]['x'] + words[i]['w'] for i in L)
         faixas.append((b - 2.1 * xh, b + 1.0 * xh, x0 - 1.5 * xh, x1 + 1.5 * xh))
     if faixas:
@@ -109,12 +116,18 @@ def limpar(gray, pg, formas):
     protegidas = set() # marcas que alguma palavra pede, ou sobre palavra que não se pôde validar
     # 1ª passada: o que cada palavra pede. As linhas deste livro são próximas: a zona abaixo de uma linha
     # cobre a zona dos acentos da seguinte, então a marca pedida por uma linha nunca é apagada pela outra.
+    # pedaços de palavra hifenizada no fim da linha e o começo da linha seguinte: não são palavras ("dú-" + "vida")
+    pedaco = set()
+    for k_, L in enumerate(linhas):
+        if L and words[L[-1]]['t'].endswith('-'):
+            pedaco.add(L[-1])
+            if k_ + 1 < len(linhas) and linhas[k_ + 1]: pedaco.add(linhas[k_ + 1][0])
     for wi, w in enumerate(words):
         if wi not in bl: continue
         b = bl[wi]
         acima_caixa = [i for i in pequenas if w['x'] <= cen[i][0] <= w['x'] + w['w']
                        and st[i][1] + st[i][3] <= b - 0.85 * xh and st[i][1] >= b - 2.3 * xh]
-        v = formas.validar(w['t'])
+        v = None if wi in pedaco else formas.validar(w['t'])
         # posição real de cada letra: os corpos de tinta que atravessam a faixa da altura de x, em ordem
         corpos = sorted((i for i in range(1, k) if not pequena[i] and w['x'] - 2 <= cen[i][0] <= w['x'] + w['w'] + 2
                          and st[i][1] <= b - 0.6 * xh and st[i][1] + st[i][3] >= b - 0.2 * xh and st[i][3] >= 0.5 * xh),

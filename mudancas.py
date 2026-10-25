@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'ferramentas_reconstrucao'))  # repositório reconstrucao-livros, ao lado
-import ocr as O, cv2, numpy as np
+import os, ocr as O, cv2, numpy as np
+import idioma; idioma.definir(codigo=os.environ.get('LEITOR_IDIOMA', 'spa'))   # 'por' para livros em português
 a, b = sys.argv[1], sys.argv[2]; out = Path('mudou'); out.mkdir(exist_ok=True)
 fs = sorted(Path(a).glob('*.png'))
 with ThreadPoolExecutor(11) as ex:
