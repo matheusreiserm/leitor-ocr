@@ -22,11 +22,13 @@ from ocr import TESS, TESSDATA
 DPI = 300
 
 
-def texto_invisivel(img):
+def texto_invisivel(img, branquear=True):
     """PDF de uma página só com o texto do Tesseract (sem imagem), no tamanho da imagem a 300 dpi."""
     with tempfile.TemporaryDirectory() as td:
         # o OCR lê uma cópia com o papel a branco (a sombra da lombada atrapalha); a imagem do livro não muda
-        src = Path(td) / 'p.png'; cv2.imwrite(str(src), fundo_branco(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)))
+        # (só para escaneamento com sombra/papel escuro: em página já limpa, branquear afina os acentos e o OCR os perde)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        src = Path(td) / 'p.png'; cv2.imwrite(str(src), fundo_branco(g) if branquear else g)
         subprocess.run([TESS, str(src), str(Path(td) / 'p'), '--tessdata-dir', str(TESSDATA), '-l', idioma.tesseract(),
                         '--dpi', str(DPI), '-c', 'textonly_pdf=1', 'pdf'], check=True, capture_output=True,
                        env=dict(_o.environ, OMP_THREAD_LIMIT='1'))
