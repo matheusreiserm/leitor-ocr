@@ -26,7 +26,7 @@ _VARIANTES = [(re.compile(r'g(?:úii|úi|iii|ii|i|ú|u)(?=[aeiouáéíóú])'), 
 
 def corrigir(palavra, lex):
     m = re.match(r'^(\W*)(.*?)(\W*)$', palavra); a, w, z = m.groups()
-    if w.isalpha() and idioma.com_trema(w) != w and lex.ok(w): return a + idioma.com_trema(w) + z   # grafia antiga (só palavra portuguesa)
+    if w.isalpha() and w[0].islower() and idioma.com_trema(w) != w and lex.ok(w): return a + idioma.com_trema(w) + z   # grafia antiga (nome próprio, como "Equitable", fica)
     if not w.isalpha() or lex.ok(w): return palavra
     cands = {w}
     for rx, novo in _VARIANTES:
