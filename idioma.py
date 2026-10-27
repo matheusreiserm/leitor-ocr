@@ -12,6 +12,7 @@ from pathlib import Path
 
 IDIOMAS = {'spa': dict(tess='spa', lexico='es.json.gz'), 'por': dict(tess='por', lexico='pt.json.gz')}
 ATUAL = 'spa'
+GRAFIA_ANTIGA = False   # livro em português anterior a 2009: trema nas famílias de palavras que o tinham
 
 
 def do_livro(pasta):
@@ -21,8 +22,11 @@ def do_livro(pasta):
 
 
 def definir(pasta=None, codigo=None):
-    global ATUAL
+    global ATUAL, GRAFIA_ANTIGA
     ATUAL = codigo or do_livro(pasta)
+    if pasta is not None:
+        f = Path(pasta) / 'reconstrucao' / 'config.json'
+        GRAFIA_ANTIGA = bool((json.load(open(f, encoding='utf-8-sig')) if f.exists() else {}).get('grafia_antiga'))
     if ATUAL not in IDIOMAS: raise ValueError(f'idioma desconhecido: {ATUAL} (conhecidos: {", ".join(IDIOMAS)})')
     return ATUAL
 
@@ -52,3 +56,17 @@ def moderna(w):
 def grafia_antiga(w):
     """A palavra tem uma marca que só a grafia antiga usa (o léxico atual não a conhece)."""
     return ATUAL == 'por' and moderna(w) != w.lower()
+
+
+# famílias que tinham trema antes de 2009 (o u de gue/gui/que/qui se pronunciava): sempre, sem exceção dentro da família
+_TREMA = re.compile(r'(?<![a-záéíóúâêôãõç])(ag[uü](?=ent)|ling[uü](?=[ií])|bil[ií]ng[uü](?=e)|freq[uü](?=[eê]n)|conseq[uü](?=[eê]n)|'
+                    r'seq[uü](?=e[lsn])|tranq[uü](?=il)|cinq[uü](?=ent)|ping[uü](?=i[mn])|sang[uü](?=[ií]n)|'
+                    r'eq[uü](?=i(?:ta|d|n|l))|delinq[uü](?=[eê]n)|eloq[uü](?=[eê]n)|ung[uü](?=ent)|arg[uü](?=i)|'
+                    r'ag[uü](?=e)|averig[uü](?=e)|apazig[uü](?=e)|enxag[uü](?=e)|sag[uü](?=i)|q[uü](?=inq[uü])|'
+                    r'quinq[uü](?=[eê]n)|ubiq[uü](?=i)|eq[uü](?=estre))', re.I)
+
+
+def com_trema(w):
+    """'aguenta' -> 'agüenta', 'linguística' -> 'lingüística', em livro de grafia antiga (senão, a palavra como está)."""
+    if ATUAL != 'por' or not GRAFIA_ANTIGA: return w
+    return _TREMA.sub(lambda m: m.group(0)[:-1] + ('Ü' if m.group(0)[-1].isupper() else 'ü'), w)
