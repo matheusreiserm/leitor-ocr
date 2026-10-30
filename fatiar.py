@@ -38,7 +38,24 @@ def texto_invisivel(img, branquear=True):
 MARGEM = 190   # px a 300 dpi em volta da mancha (cabeçalho a número de página)
 
 
-def endireitar_e_igualar(paginas, centralizar=()):
+def tirar_fundo(c, borda=10):
+    """Escaneamento com a tampa aberta: o papel é a grande área clara sobre o fundo preto. Fora dele (e numa faixa
+    de alguns px na beira, onde fica a sombra da borda da folha) vira cor do papel; dentro, nada muda."""
+    g = cv2.cvtColor(c, cv2.COLOR_BGR2GRAY)
+    claro = (g > 90).astype(np.uint8)
+    k, lab, st, _ = cv2.connectedComponentsWithStats(claro, 8)
+    if k < 2: return c
+    i = 1 + int(np.argmax(st[1:, 4]))
+    cont, _ = cv2.findContours((lab == i).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    papel_m = np.zeros(g.shape, np.uint8); cv2.drawContours(papel_m, cont, -1, 1, -1)   # com o texto (os "buracos") dentro
+    papel_m = cv2.erode(papel_m, np.ones((3, 3), np.uint8), iterations=borda).astype(bool)
+    if papel_m.all(): return c
+    cor = np.median(c[papel_m & (g > 150)], axis=0) if (papel_m & (g > 150)).any() else np.array([245, 245, 245])
+    out = c.copy(); out[~papel_m] = cor.astype(np.uint8)
+    return out
+
+
+def endireitar_e_igualar(paginas, centralizar=(), fundo_escuro=False):
     """Gira cada página pela inclinação das linhas e recorta todas no mesmo tamanho, com a mancha no mesmo lugar:
     na horizontal pela mancha (ou, em página sem mancha cheia, pela lombada, como as do mesmo lado), na vertical
     pelo número da página (ou, sem ele, como as do mesmo lado). Onde o escaneamento não chega (margem interna),
@@ -49,7 +66,9 @@ def endireitar_e_igualar(paginas, centralizar=()):
         g = cv2.cvtColor(c, cv2.COLOR_BGR2GRAY); b = np.where(fundo_branco(g) < 180, 0, 255).astype(np.uint8)
         a = inclinacao(b, 21); a += inclinacao(_girar(b, a, 255), 21)
         r = analisar(_girar(b, a, 255), 21)
-        med.append(dict(nome=nome, lado=nome[-3:], c=_girar(c, a, None), ang=a, caixa=r['caixa'], folio=r['folio']))
+        cg = _girar(c, a, None)
+        if fundo_escuro: cg = tirar_fundo(cg)
+        med.append(dict(nome=nome, lado=nome[-3:], c=cg, ang=a, caixa=r['caixa'], folio=r['folio']))
     cheias = [m for m in med if m['caixa'] and m['folio'] is not None]
     tw = float(np.median([m['caixa'][2] - m['caixa'][0] for m in cheias]))
     W = int(tw + 2 * MARGEM)
@@ -107,7 +126,7 @@ def main(pdf, pasta, titulo):
         for lado, m in (('esq', c[:, :L]), ('dir', c[:, L:])):
             if (i + 1, lado) not in ignorar: paginas.append((f'{i + 1:02d}_{lado}', m))
     tam = None
-    if cfg.get('endireitar', True): paginas, tam = endireitar_e_igualar(paginas, set(cfg.get('centralizar', [])))
+    if cfg.get('endireitar', True): paginas, tam = endireitar_e_igualar(paginas, set(cfg.get('centralizar', [])), cfg.get('fundo_escuro', False))
     # páginas reconstruídas à mão (ex.: fim de linha entortado na lombada): {"098_49_esq": "reconstrucao/x.jpg"}
     # o nome é o da página recortada, sem o número de ordem; a imagem substitui o recorte, já no tamanho final
     subst = cfg.get('substituir', {})
