@@ -40,6 +40,16 @@ FONTE = next((f for f in (r'C:\Windows\Fonts\arial.ttf', '/usr/share/fonts/truet
 _MEDIDA = pymupdf.Font(fontfile=FONTE) if FONTE else pymupdf.Font('helv')
 
 
+def unicode_certo(doc):
+    """Com a Arial, o PDF traduz o hífen por U+00AD (invisível; a busca por "levando-se" falha) e o espaço por U+00A0."""
+    for x in range(1, doc.xref_length()):
+        if not doc.xref_is_stream(x): continue
+        b = doc.xref_stream(x)
+        if b and b'begincmap' in b:   # só o destino, a segunda coluna ("<0010> <00ad>"); a primeira é o número do glifo
+            n = re.sub(rb'(?im)^(<[0-9a-f]{4}>[ \t]+)<00ad>[ \t]*$', rb'\g<1><002d>', b); n = re.sub(rb'(?im)^(<[0-9a-f]{4}>[ \t]+)<00a0>[ \t]*$', rb'\g<1><0020>', n)
+            if n != b: doc.update_stream(x, n)
+
+
 def camada_texto(pg, palavras, escala, lex, trocas):
     """Texto invisível escrito a partir das caixas de palavra do OCR (escala: pt por pixel), já corrigido."""
     nome = 'helv'
@@ -107,7 +117,7 @@ def main(pasta_img, saida, livro, pasta_ocr=None, branquear=False, dpi=None):
         h, w = im.shape[:2]; pg = out.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
         pg.insert_image(pg.rect, filename=str(f))
         if g.name in palavras: camada_texto(pg, palavras[g.name]['words'], 72 / dpi, lex, trocas)
-    out.subset_fonts(); out.save(saida, garbage=3, deflate=True)
+    out.subset_fonts(); unicode_certo(out); out.save(saida, garbage=3, deflate=True)
     json.dump(palavras, open(saida + '.ocr.json', 'w', encoding='utf-8'), ensure_ascii=False)
     import collections
     print(f'{saida}: {len(fs)} páginas, {_o.path.getsize(saida) / 1e6:.1f} MB; {len(trocas)} leituras corrigidas:',
