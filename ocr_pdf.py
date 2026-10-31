@@ -35,15 +35,22 @@ def corrigir(palavra, lex):
     return a + max(boas, key=lambda c: lex.f.get(c.lower(), 0)) + z if boas else palavra
 
 
+# fonte com Unicode inteiro: a Helvetica padrão do PDF não tem aspas curvas nem travessão, que viravam "·" no texto
+FONTE = next((f for f in (r'C:\Windows\Fonts\arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf') if _o.path.exists(f)), None)
+_MEDIDA = pymupdf.Font(fontfile=FONTE) if FONTE else pymupdf.Font('helv')
+
+
 def camada_texto(pg, palavras, escala, lex, trocas):
     """Texto invisível escrito a partir das caixas de palavra do OCR (escala: pt por pixel), já corrigido."""
+    nome = 'helv'
+    if FONTE: pg.insert_font(fontname='ocr', fontfile=FONTE); nome = 'ocr'
     for w in palavras:
         t = corrigir(w['t'], lex)
         if t != w['t']: trocas.append((w['t'], t))
         x, y, ww, hh = (v * escala for v in (w['x'], w['y'], w['w'], w['h']))
-        l1 = pymupdf.get_text_length(t, fontname='helv', fontsize=1) or 1
+        l1 = _MEDIDA.text_length(t, fontsize=1) or 1
         fs = max(1.0, min(ww / l1, hh * 1.3))
-        pg.insert_text((x, y + hh * 0.85), t + ' ', fontname='helv', fontsize=fs, render_mode=3)
+        pg.insert_text((x, y + hh * 0.85), t + ' ', fontname=nome, fontsize=fs, render_mode=3)
 
 
 def _sem_marcas(s):
@@ -100,7 +107,7 @@ def main(pasta_img, saida, livro, pasta_ocr=None, branquear=False, dpi=None):
         h, w = im.shape[:2]; pg = out.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
         pg.insert_image(pg.rect, filename=str(f))
         if g.name in palavras: camada_texto(pg, palavras[g.name]['words'], 72 / dpi, lex, trocas)
-    out.save(saida, garbage=3, deflate=True)
+    out.subset_fonts(); out.save(saida, garbage=3, deflate=True)
     json.dump(palavras, open(saida + '.ocr.json', 'w', encoding='utf-8'), ensure_ascii=False)
     import collections
     print(f'{saida}: {len(fs)} páginas, {_o.path.getsize(saida) / 1e6:.1f} MB; {len(trocas)} leituras corrigidas:',
